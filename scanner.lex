@@ -8,7 +8,7 @@
 #include "parser.tab.hpp"
 
 using namespace std;
-void showError();
+void showError(const string& msg = "");
 void yyerror(const char*);
 
 %}
@@ -55,7 +55,7 @@ comment				\/\/[^\r\n]*[ \r|\n|\r\n]?
 
 "/*"				{ BEGIN(bk_comment); }
 <bk_comment>"*/"	{ BEGIN(0); }
-<bk_comment>"/*"	{ showError(); }
+<bk_comment>"/*"	{ showError("Nested comments are not allowed."); }
 <bk_comment>.|\n		;
 
 "=="|"!="|"<"|">"|"<="|">="	{yylval.lexeme = string(yytext); return RELOP;}
@@ -80,7 +80,10 @@ comment				\/\/[^\r\n]*[ \r|\n|\r\n]?
 
 %%
 
-void showError() {
+void showError(const string& msg) {
 	output::errorLex(yylineno);
+	if(!msg.empty()){
+		cerr << msg << endl;
+	}
 	exit(1);
 }
