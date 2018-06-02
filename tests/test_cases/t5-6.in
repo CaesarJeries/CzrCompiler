@@ -1,0 +1,41 @@
+void main() {
+
+    //while test
+
+    bool a = true;
+    bool e = true;
+    int c = 0;
+    int d = 0;
+
+    while(a and e)
+    {
+        d = d + 1;
+        c = c + 2;
+        a = c > d;
+        e = c < d * 2;
+    }
+    printi(c);
+    print("\n");
+    printi(d);
+    print("\n");
+
+
+    int ione = 1;
+    int itwo = 10;
+    bool bone = false;
+    bool btwo = false;
+    while(ione < itwo or bone or btwo)
+    {
+        print("true\n");
+        printi(ione);
+        print("\n");
+        printi(itwo);
+        print("\n");
+        ione = ione + 1;
+        bone = ione < 15;
+        btwo = (ione + 5) < 17;
+    }
+
+    if (btwo) print("true"); else print("false");
+
+}

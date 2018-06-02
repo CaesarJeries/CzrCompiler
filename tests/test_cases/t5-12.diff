@@ -1,0 +1,6 @@
+8,10c8
+<   Exception 7  [Bad data address]  occurred and ignored
+< c1086
+<   Exception 4  [Address error in inst/data fetch]  occurred and ignored
+---
+> not c

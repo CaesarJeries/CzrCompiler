@@ -1,0 +1,20 @@
+bool getT() {
+    return true;
+}
+
+void printNums(bool c, int p1, int p2) {
+    if (c) printi(p1); else printi(p2);
+}
+
+int sum(byte a1, byte a2, byte a3)
+{
+    return a1+a2+a3;
+}
+
+void main()
+{
+    printNums(false,2,3);
+    printNums(getT(),23,2+3+6*7);
+    printi(sum(2b,6b,10b));
+    printi(sum(8b,12b,0b)*sum(0b,0b,1b));
+}

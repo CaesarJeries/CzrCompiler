@@ -1,0 +1,33 @@
+void main()
+{
+    // switch test
+
+     int x = 8;
+     switch(x)
+     {
+        case 2 : print("a") ;  break;
+        case 8b: {print("b"); print("\nok"); }   break;
+        case 8: print("c");   break;
+        case 100b: print("d"); break;
+        case 300: print("e"); break;
+     };
+     print("\n");
+
+     x = 0 - 10;
+     byte y = 11 b;
+     switch(x+y)
+     {
+            case 0 : print("a") ;  break;
+            case 1b:
+            switch(50b)
+            {
+                case 50: print("b") ; break;
+            };
+            break;
+            case 30: print("c") ;   break;
+            case 10 b: print("d") ; break;
+     };
+     print("\n");
+
+
+}

@@ -1,0 +1,10 @@
+void main() {
+
+    int x = 0 + 200b * 2b + 1;
+    printi(x);
+    print("\n");
+
+    printi(126 / (250b + 2b * 3b));
+    print("\n");
+
+}

@@ -1,0 +1,21 @@
+int skipSum(bool shouldSkip, int n)
+{
+    if (n == 0) return 0;
+    if (shouldSkip)
+        return skipSum(not shouldSkip,n-1);
+    else return n + skipSum(not shouldSkip,n-1);
+}
+
+void main()
+{
+    printi(skipSum(true,10));
+    print("\n");
+    printi(skipSum(false,40));
+    print("\n");
+    printi(skipSum(true,2));
+    print("\n");
+    printi(skipSum(true,0));
+    print("\n");
+    printi(skipSum(false,0));
+    print("\n");
+}

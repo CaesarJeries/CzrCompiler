@@ -1,0 +1,34 @@
+int foo(
+    int a0,
+    int a1,
+    int a2,
+    int a3,
+    int a4,
+    int a5,
+    int a6,
+    int a7,
+    int a8,
+    int a9
+) {
+    print("a6=");
+    printi(a6);
+    print("\na9=");
+    printi(a9);
+    print("\n");
+	return 0;
+}
+
+int bar(int x, int y)
+{
+    return y-x;
+}
+
+int fu(int x) {
+    return 10-x;
+}
+
+
+void main() {
+    foo(0,1,2,3,4,5,6,7,8,9);
+    foo(0,1+bar(4,19),2*19,3,4,5,6+bar(2,3)/fu(0),7,8,9-fu(20));
+}

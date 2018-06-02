@@ -1,0 +1,30 @@
+rm -f lex.yy.c
+rm -f parser.tab.*pp
+rm -f hw5
+flex scanner.lex
+bison -d parser.ypp
+g++ -o hw5 *.c *.cpp
+Test switch_with_default_test2 PASSED
+Test switch_with_default_test PASSED
+Test t5-10 PASSED
+Test t5-11 PASSED
+Test t5-12 PASSED
+Test t5-13 PASSED
+Test t5-14 PASSED
+Test t5-15 PASSED
+Test t5-16 PASSED
+Test t5-17 FAILED
+Test t5-18 PASSED
+Test t5-19 PASSED
+Test t5-1 PASSED
+Test t5-20 PASSED
+Test t5-21 PASSED
+Test t5-22 PASSED
+Test t5-2 PASSED
+Test t5-3 PASSED
+Test t5-4 PASSED
+Test t5-5 PASSED
+Test t5-6 PASSED
+Test t5-7 PASSED
+Test t5-8 PASSED
+Test t5-9 PASSED

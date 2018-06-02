@@ -1,0 +1,51 @@
+void main() {
+    //if test
+
+    if(true)
+    {
+        print("true\n");
+    }
+
+    if(false or false and  true)
+    {
+        print("true\n");
+    }
+
+    int ione;
+    byte btwo;
+
+    {
+        ione = 3;
+        btwo = 4b;
+        if(ione < btwo)
+            print("ione < btwo\n");
+        if(ione > btwo)
+            print("ione > btwo\n");
+        else if(ione >= btwo  and  ione <= btwo )
+            print("ione == btwo\n");
+        else
+            print("ione != btwo\n");
+    }
+
+    if (ione != btwo) {
+        ione = 4;
+
+        if(ione < btwo)
+        {
+            print("ione < btwo\n");
+        }
+        if(ione > btwo)
+        {
+            print("ione > btwo\n");
+        }
+
+        if(ione >= btwo  and  ione <= btwo )
+        {
+            print("ione == btwo\n");
+        }
+        else
+        {
+            print("ione != btwo\n");
+        }
+    }
+}

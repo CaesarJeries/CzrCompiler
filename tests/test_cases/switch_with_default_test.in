@@ -1,0 +1,13 @@
+void main(){
+	int x = 1;
+	switch(x){
+		default: x = 4;printi(4);
+		case 1: x = 1;printi(1);
+		case 2: x = 2;printi(2);
+		
+		case 3: x = 3;printi(3);
+		
+	};
+	x = 5;
+	printi(5);
+}

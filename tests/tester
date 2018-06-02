@@ -1,0 +1,52 @@
+#!/bin/bash
+
+# name of compiler's executable file
+CMP="czr_compiler"
+
+# name of the directory that contains the test cases
+DIR="test_cases"
+
+
+cd ..
+make 2> make.output
+if [ ! -f "./$CMP" ]
+then
+	>&2 echo "Compilation failed."
+	cat make.output
+else
+
+	cd tests/test_cases
+
+
+	for input in *.in
+	do
+		input=$(basename $input)
+		code_gen=${input:0:${#input}-2}s
+		../../$CMP < $input &> ./$code_gen
+	done
+
+	cd ../spim
+
+	for cg in ../$DIR/*.s
+	do
+		base_cg=$(basename $cg)
+		test_name=${base_cg:0:${#base_cg}-2}
+		output=${base_cg:0:${#base_cg}-1}out
+		act_out=${base_cg:0:${#base_cg}-1}act
+		diff_res=${base_cg:0:${#base_cg}-1}diff
+		./spim -file $cg > ../$DIR/$act_out
+		
+		if [ $test_name != "sanity_test" ]
+		then
+			diff ../$DIR/$act_out ../$DIR/$output > ../$DIR/$diff_res
+			if [ $? -eq 0 ]
+			then
+				echo "Test $test_name PASSED"
+				rm ../$DIR/$diff_res ../$DIR/$act_out ../$DIR/$cg
+			else
+				echo "Test $test_name FAILED"
+			fi
+		fi
+	done
+
+fi

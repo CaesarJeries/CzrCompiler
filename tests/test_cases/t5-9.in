@@ -1,0 +1,11 @@
+void main() {
+    //return from main test
+    int i = 10;
+    while (i > 0) {
+        i = i-1;
+        if (i == 2) return;
+        printi(i);
+        print("\n");
+    }
+    print("out of loop");
+}

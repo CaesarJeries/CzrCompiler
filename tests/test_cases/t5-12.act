@@ -1,0 +1,12 @@
+Loaded: ./exceptions.s
+zero
+one
+two
+practically infinity
+c1086
+not c
+  Exception 7  [Bad data address]  occurred and ignored
+c1086
+  Exception 4  [Address error in inst/data fetch]  occurred and ignored
+not c
+c1086

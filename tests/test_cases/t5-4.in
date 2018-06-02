@@ -1,0 +1,16 @@
+void main() {
+//Arithmetic test
+
+int a = 4;
+int e = 3;
+
+a = (a + e) * a + e - a * e / e * e;
+e = (a + e) * (e - a) * (e + 3*a);
+printi(a);
+printi(e);
+
+byte c = 12b;
+int d = a+c/10-e*c;
+printi(d);
+
+}

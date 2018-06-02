@@ -1,0 +1,1086 @@
+%{
+
+#include <iostream>
+#include <list>
+#include <string>
+#include <sstream>
+#include <exception>
+#include "yystruct.hpp"
+#include "Scope.hpp"
+#include "FunctionTable.hpp"
+#include "ScopeManager.hpp"
+#include "output.hpp"
+#include "CodeGen.hpp"
+#include "RegPool.hpp"
+#include "bp.hpp"
+
+#define DEBUG 0
+
+
+
+using std::stringstream;
+using namespace CodeGen;
+using namespace std;
+int yylex();
+void yyerror(const char*);
+string setType(string t1, string t2);
+bool checkAssignmentType(string, string);
+bool checkBinOpType(string, string);
+bool isNumber(string type);
+extern int yylineno;
+using namespace output;
+
+void debug_print(string s){
+	if(DEBUG) cout << s << endl;
+}
+
+/**	Globals	*/
+ScopeManager scopeManager;
+FunctionTable functions;
+
+#define CHECK_VAR_DECL(s) do{ \
+if(scopeManager.isDeclared(s) == false){ \
+				errorUndef(yylineno, s); \
+				YYERROR; \
+			} \
+}while(0)
+
+
+#define CHECK_DECL_IDEN(s) do{ \
+	if(scopeManager.isDeclared(s) || functions.isDeclared(s)){ \
+				errorDef(yylineno, s); \
+				YYERROR; \
+	} \
+}while(0)
+
+
+#define CHECK_VAR_NOT_DECL(s) CHECK_DECL_IDEN(s)
+
+#define CHECK_FUNC_DECL(s) do{ \
+if(functions.isDeclared(s) == false){ \
+				errorUndefFunc(yylineno, s); \
+				YYERROR; \
+			} \
+}while(0)
+
+#define CHECK_FUNC_NOT_DECL(s) CHECK_DECL_IDEN(s)
+
+
+%}
+
+%start Program
+%token VOID INT BYTE B BOOL TRUE FALSE
+%token RETURN IF ELSE WHILE SWITCH CASE BREAK DEFAULT COLON SC COMMA
+%token LPAREN RPAREN LBRACE RBRACE ID NUM STRING EOF_TOKEN
+%right ASSIGN
+%left OR
+%left AND
+%left RELOP
+%left PLUS MINUS
+%left MULT DIV
+%right NOT
+
+
+%%
+
+Program :	Funcs
+			{
+			if(functions.isMainDefined() == false){
+				errorMainMissing();
+				YYERROR;
+			}
+			emitCode();
+			YYACCEPT;
+			};
+
+Program:	EOF_TOKEN
+			{
+				if(functions.isMainDefined() == false){
+					errorMainMissing();
+					YYERROR;
+				}
+				emitCode();
+				YYACCEPT;
+			};	
+
+
+
+
+Funcs: 	FuncDecl Funcs;
+Funcs: 	FuncDecl;
+
+
+
+
+FuncDecl:	RetType ID
+			{
+				CHECK_FUNC_NOT_DECL($2.name);
+				Function($2.name, $1.type);
+				scopeManager.addScope($1.type);
+				emitFunctionLabel($2.name);
+				emit("subu $fp, $sp, 4 # set current frame pointer");
+			}
+			LPAREN Formals { functions.addFunction(Function::getCurrentFunc()); }
+			RPAREN LBRACE
+			Statements RBRACE
+			{
+				string str = getNext();
+				bpatch($9.returnList, str);
+				popLocals();
+				scopeManager.popScope(false); // passing true results in bad address exceptions
+				if($2.name == "main" && $1.type == "VOID"){
+					// terminate program
+					emit("li $v0, 10");
+					emit("syscall");
+				}else{
+					emitReturn();
+				}
+				
+				endDeclaration($2.name);
+				RegPool::freeAll(); // ?
+			}
+			;
+
+			
+			
+			
+RetType: Type | VOID;
+
+Formals: ;
+Formals:	FormalsList;
+FormalsList:	FormalDecl
+				{
+					Function::addParamType($1.type);
+					scopeManager.addParam(Variable($1.name, $1.type));	
+				};
+FormalsList:	FormalDecl
+				{
+					Function::addParamType($1.type);
+					scopeManager.addParam(Variable($1.name, $1.type));
+				}
+				COMMA FormalsList;
+
+FormalDecl:	Type ID
+			{
+				//CHECK_VAR_NOT_DECL($2.name);
+				$$.name = $2.name;
+				$$.type = $1.type;
+			};
+
+Statements:	Statement;
+
+Statements: Statements Statement
+			{
+				$$.nextList = merge($1.nextList, $2.nextList);
+				$$.breakList = merge($1.breakList, $2.breakList);
+				$$.returnList = merge($1.returnList, $2.returnList);
+			};
+
+Statement:	LBRACE
+			{ scopeManager.addScope(Scope::brace_scope); }
+			Statements RBRACE
+			{
+				$$.line = $3.line;
+				$$.type = $3.type;
+				scopeManager.popScope(true);
+				
+				$$.nextList = merge($3.nextList, $$.nextList);
+				$$.breakList = merge($3.breakList, $$.breakList);
+				$$.trueList = merge($3.trueList, $$.trueList);
+				$$.falseList = merge($3.falseList, $$.falseList);
+				$$.returnList = merge($3.returnList, $$.returnList);
+			};
+			
+
+Statement:	Type ID SC
+			{
+				CHECK_VAR_NOT_DECL($2.name);
+				scopeManager.addVar(Variable($2.name, $1.type));
+				$$.nextList = newList();
+				$$.breakList = newList();
+				pushLocalVariable();
+			};
+
+Statement:	Type ID ASSIGN Exp SC
+			{
+				CHECK_VAR_NOT_DECL($2.name);
+				if(checkAssignmentType($1.type, $4.type) == false){
+					errorMismatch(yylineno);
+					YYERROR;
+				}
+				scopeManager.addVar(Variable($2.name, $1.type));
+				$$.nextList = newList();
+				$$.breakList = newList();
+				/*	if Exp == TRUE/FALSE, jump to next line.	*/
+				if($4.expType == "BOOLCONST" || $4.expType == "CALL" || $4.expType == "BOOLEXP"){
+					string str = getNext();
+					bpatch($4.trueList, str);
+					bpatch($4.falseList, str);
+					$4.trueList = newList();
+					$4.falseList = newList();
+				}
+				if($4.expType == "BOOLEXP"){
+					$4.reg = RegPool::getRegister();
+					emitBoolOp($4.reg, $4.boolRegs, $4.op);
+					RegPool::freeRegister($4.boolRegs);
+				}
+				if($4.expType == "RELOP"){
+					string reg = RegPool::getRegister();
+					string str = getNext();
+					emit("addu " + reg + ", $zero, 1");
+					bpatch($4.trueList, str);
+					$4.trueList = newList();
+					int location = emit("j ");
+					str = getNext();
+					emit("addu " + reg + ", $zero, 0");
+					bpatch($4.falseList, str);
+					$4.falseList = newList();
+					bpatch(makelist(location), getNext());
+					$4.reg = reg;
+					RegPool::freeRegister($4.regList);
+				}
+				emit("# push local variable " + $2.name);
+				pushLocalVariable($4.reg);
+				RegPool::freeRegister($4.reg);
+			};
+
+Statement:	ID ASSIGN Exp SC
+			{
+				CHECK_VAR_DECL($1.name);
+				string left_type = scopeManager.getVarType($1.name);
+				if(checkAssignmentType(left_type, $3.type) == false){
+					errorMismatch(yylineno);
+					YYERROR;
+				}
+				$$.nextList = newList();
+				$$.breakList = newList();
+				/*	if Exp == TRUE/FALSE, jump to next line.	*/
+				if($3.expType == "BOOLCONST" || $3.expType == "CALL"){
+					string str = getNext();
+					bpatch($3.trueList, str);
+					bpatch($3.falseList, str);
+					$3.trueList = newList();
+					$3.falseList = newList();
+				}
+				if($3.expType == "BOOLEXP"){
+					$3.reg = RegPool::getRegister();
+					string str = getNext();
+					bpatch($3.trueList, str);
+					bpatch($3.falseList, str);
+					$3.trueList = newList();
+					$3.falseList = newList();
+					emitBoolOp($3.reg, $3.boolRegs, $3.op);
+					RegPool::freeRegister($3.boolRegs);
+				}
+				if($3.expType == "RELOP"){
+					string reg = RegPool::getRegister();
+					string str = getNext();
+					emit("addu " + reg + ", $zero, 1");
+					bpatch($3.trueList, str);
+					$3.trueList = newList();
+					int location = emit("j ");
+					str = getNext();
+					emit("addu " + reg + ", $zero, 0");
+					bpatch($3.falseList, str);
+					$3.falseList = newList();
+					bpatch(makelist(location), getNext());
+					$3.reg = reg;
+					RegPool::freeRegister($3.regList);
+				}
+				updateLocalVariable(scopeManager.getVarOffset($1.name), $3.reg);
+				RegPool::freeRegister($3.reg);
+			};
+
+Statement: 	Call SC;
+Statement: 	RETURN SC
+			{
+				if(scopeManager.checkReturnTypeMatch("VOID", false) == false){
+					errorMismatch(yylineno);
+					YYERROR;
+				}
+				$$.type = string("RETURN");
+				$$.nextList = newList();
+				$$.returnList = makelist(emit("j "));
+			};
+Statement:	RETURN Exp SC
+			{
+				if(scopeManager.checkReturnTypeMatch($2.type, true) == false){
+					errorMismatch(yylineno);
+					YYERROR;
+				}
+				if($2.expType == "BOOLCONST" || $2.expType == "CALL" || $2.expType == "BOOLEXP"){
+					string str = getNext();
+					bpatch($2.trueList, str);
+					bpatch($2.falseList, str);
+					$2.trueList = newList();
+					$2.falseList = newList();
+				}
+				if($2.expType == "BOOLEXP"){
+					$2.reg = RegPool::getRegister();
+					emitBoolOp($2.reg, $2.boolRegs, $2.op);
+					RegPool::freeRegister($2.boolRegs);
+				}
+				if($2.expType == "RELOP"){
+					string reg = RegPool::getRegister();
+					string str = getNext();
+					emit("addu " + reg + ", $zero, 1");
+					bpatch($2.trueList, str);
+					$2.trueList = newList();
+					int location = emit("j ");
+					str = getNext();
+					emit("addu " + reg + ", $zero, 0");
+					bpatch($2.falseList, str);
+					$2.falseList = newList();
+					bpatch(makelist(location), getNext());
+					$2.reg = reg;
+					RegPool::freeRegister($2.regList);
+				}
+				$$.type = string("RETURN");
+				emit("move $v0, " + $2.reg + " # store return value");
+				RegPool::freeRegister($2.reg);
+				RegPool::freeRegister($2.regList);
+				$$.nextList = newList();
+				$$.returnList = makelist(emit("j "));
+			};
+			
+Statement:	IF LPAREN Exp
+			{
+				if($3.type != "BOOL"){
+					errorMismatch(yylineno);
+					YYERROR;
+				}
+				if($3.expType == "ID" || $3.expType == "CALL"){
+					int true_location = emitTrueCheck($3.reg);
+					int false_location = emit("j ");
+					$3.trueList = makelist(true_location);
+					$3.falseList = makelist(false_location);
+				}
+			}
+			RPAREN 
+			{
+				scopeManager.addScope(Scope::if_scope);
+			}
+			M Statement
+			{
+				//		Exp			M
+				bpatch($3.trueList, $7.quad);
+				$3.trueList = newList();
+				
+				//				Statement
+				$$.breakList = $8.breakList;
+				$$.returnList = $8.returnList;
+				scopeManager.popScope(true);
+				RegPool::freeRegister($3.reg);
+				RegPool::freeRegister($3.regList);
+			}
+			Statement_With_Else
+			{
+				if($10.quad != "NOELSE"){
+					bpatch($3.falseList, $10.quad);
+					bpatch($8.nextList, $10.quad2);
+					$3.falseList = newList();
+					$8.nextList = newList();
+					$$.nextList = $10.nextList;
+					$$.breakList = merge($10.breakList, $$.breakList);
+					$$.returnList = merge($10.returnList, $8.returnList);
+					
+				}else{
+					vector<int> temp = merge($$.nextList, $3.falseList);
+					$3.falseList = newList();
+					$$.nextList = newList();
+					bpatch(temp, $10.quad2);
+					$$.breakList = $8.breakList;
+					$$.returnList = $8.returnList;
+				}
+			}
+			;
+
+
+
+Statement_With_Else:	ELSE
+						{ scopeManager.addScope(Scope::else_scope); }
+						N M Statement
+						{
+							$$.quad = $4.quad;
+							string str = getNext();
+							$$.quad2 = str;
+							bpatch($3.nextList, str);
+							$3.nextList = newList();
+							$$.nextList = $5.nextList;
+							$$.breakList = $5.breakList;
+							$$.returnList = $5.returnList;
+							scopeManager.popScope(true);
+						}
+						|
+						{
+							$$.quad = string("NOELSE");
+							$$.quad2 = getNext();
+						};
+
+Statement:	WHILE LPAREN M Exp
+			{
+				if($4.type != "BOOL"){
+					errorMismatch(yylineno);
+					YYERROR;
+				}
+				if($4.expType == "ID" || $4.expType == "CALL"){
+					int true_location = emitTrueCheck($4.reg);
+					int false_location = emit("j ");
+					$4.trueList = makelist(true_location);
+					$4.falseList = makelist(false_location);
+				}
+			}
+			RPAREN
+			{
+				scopeManager.addScope(Scope::while_scope);
+			}
+			M Statement N
+			{
+				$$.nextList = newList();
+				$$.breakList = newList();
+				$$.returnList = $9.returnList;
+
+				//  	EXP          M2
+				bpatch($4.trueList, $8.quad);
+				string str = getNext();
+				bpatch($4.falseList, str);
+				//		Statement
+				bpatch($9.breakList, str);
+
+				// if Statement reached the end N (there was no break), go to the boolean exp again
+				
+				// 		N            M1
+				bpatch($10.nextList, $3.quad); 
+
+				// 		Statement   M1
+				bpatch($9.nextList, $3.quad);
+				scopeManager.popScope(true);
+				RegPool::freeRegister($4.reg);
+				RegPool::freeRegister($4.regList);
+			};
+
+Statement:	NB BREAK SC
+			{
+				if(!scopeManager.isInsideWhileBlock() && !scopeManager.isInsideSwitchCase()){
+					errorUnexpectedBreak(yylineno);
+					YYERROR;
+				}
+				$$.type = string("RETURN");
+				$$.breakList = $1.nextList;
+				$$.nextList = newList();
+			};
+
+Statement:	SWITCH LPAREN Exp N
+			{
+				if(!isNumber($3.type)){
+					errorMismatch(yylineno);
+					YYERROR;
+				}
+			}
+			RPAREN LBRACE
+			{
+				scopeManager.addScope(Scope::switch_scope);
+				scopeManager.enteredSwitchScope();
+			}
+			
+			CaseList RBRACE SC
+			{
+				scopeManager.exitedSwitchScope();
+				scopeManager.popScope(true);
+				//		N
+				emit("# Break out of switch statement");
+				vector<int> v = makelist(emit("j "));
+				string str = getNext();
+				bpatch($4.nextList, str);
+				//						CaseList
+				list<string> quadList = $9.quadList;
+				list<int> valueList = $9.valueList;
+				string quad = string("");
+				int value = 0;
+				
+				
+				while(!quadList.empty()){
+					quad = quadList.front();
+					value = valueList.front();
+					stringstream ss;
+					ss << value;
+					emit("beq " + $3.reg + ", " + ss.str() + ", " + quad);
+					quadList.pop_front();
+					valueList.pop_front();
+				}
+				// If a default case exists, jump to defaultQuad
+				if($9.defaultQuad != ""){
+					emit("j " + $9.defaultQuad + " # jump to default case");
+				}
+				emit("# End of switch statement");
+				string next_label = getNext();
+				bpatch($9.nextList, next_label);
+				bpatch(v, next_label);
+				//$$.nextList = makelist(emit("j "));
+				//$$.breakList = $9.breakList;
+				bpatch($9.breakList, next_label);
+				$$.returnList = $9.returnList;
+				RegPool::freeRegister($3.reg);
+				RegPool::freeRegister($3.regList);
+			};
+
+CaseList:	CaseList CaseStatement
+			{
+				$$.quadList = $1.quadList;
+				$$.valueList = $1.valueList;
+				if($2.type == "default"){
+					if($1.defaultQuad == ""){
+						$$.defaultQuad = $2.defaultQuad;
+						$$.type = "default";
+					}else{
+						$$.defaultQuad = $1.defaultQuad;
+						$$.type = "default";
+					}
+				}else{
+					$$.defaultQuad = $1.defaultQuad;
+					$$.quadList.push_back($2.quad);
+					$$.valueList.push_back($2.val);
+				}
+				
+				$$.nextList = merge($1.nextList, $2.nextList);
+				$$.breakList = merge($1.breakList, $2.breakList);
+				$$.returnList = merge($1.returnList, $2.returnList);
+			};
+
+CaseList: 	CaseStatement
+			{
+				//cout << "CaseStat: quad = " << $1.quad << ", value = " << $1.val << endl;
+				if($1.type == "default"){
+					$$.defaultQuad = $1.defaultQuad;
+					$$.type = "default";
+				}else{
+					$$.quadList.push_front($1.quad);
+					$$.valueList.push_front($1.val);
+				}
+				$$.nextList = $1.nextList;
+				$$.breakList = $1.breakList;
+				$$.returnList = $1.returnList;
+			};
+
+			
+CaseStatement: 	CaseDec
+				{
+					if($1.type == "default"){
+						$$.defaultQuad = $1.defaultQuad;
+						$$.type = "default";
+					}else{
+						$$.quad = $1.quad;
+						$$.val = $1.val;
+					}
+					scopeManager.enteredSwitchCase();
+				}
+				Statements
+				{
+					scopeManager.exitedSwitchCase();
+					$$.nextList = $3.nextList;
+					$$.breakList = $3.breakList;
+					$$.returnList = $3.returnList;
+				};
+
+
+CaseStatement:	CaseDec
+				{
+					if($1.type == "default"){
+						$$.defaultQuad = $1.defaultQuad;
+						$$.type = "default";
+					}else{
+						$$.quad = $1.quad;
+						$$.val = $1.val;
+					}
+					$$.nextList = makelist(emit("j "));
+				};
+					
+
+CaseDec:	CASE NUM COLON M
+			{
+				$$.val = $2.val;
+				$$.quad = $4.quad;
+			}
+			;
+
+CaseDec: 	CASE NUM B
+			{
+				if($2.val > 255 || $2.val < 0){
+					errorByteTooLarge(yylineno, $1.lexeme);
+					YYERROR;
+				}
+				
+			}
+			COLON M
+			{
+				$$.val = $2.val;
+				$$.quad = $6.quad;
+			};
+
+CaseDec:	DEFAULT COLON M
+			{
+				if(scopeManager.hasDefaultStatement()){
+					errorTooManyDefaults(yylineno);
+					YYERROR;
+				}
+				scopeManager.defaultEncountered();
+				$$.type = "default";
+				$$.defaultQuad = $3.quad;
+			};
+
+
+			
+
+Call:	ID LPAREN ExpList RPAREN 
+		{
+			CHECK_FUNC_DECL($1.name);
+			if(functions.checkTypeMatch($1.name, $3.typeList) == false){
+				vector<string> v = functions.getArgumentTypes($1.name);
+				errorPrototypeMismatch(yylineno, $1.name, v);
+				YYERROR;
+			}
+			$$.type = functions.getReturnType($1.name);
+			list<string> saved_regs = saveRegs();
+			pushFramePointer();
+			pushReturnAddress();
+			int n = $3.regList.size();
+			pushArguments($3.regList);
+			RegPool::freeRegister($3.regList);
+			RegPool::freeRegister($3.reg);
+			emit("jal " + $1.name);
+			popArguments(n);
+			popReturnAddress();
+			popFramePointer();
+			restoreRegs(saved_regs);
+			$$.reg = string("$v0");
+		};
+
+Call:	ID LPAREN RPAREN
+		{
+			CHECK_FUNC_DECL($1.name);
+			list<string> t = list<string>();
+			if(functions.checkTypeMatch($1.name, t) == false){
+				vector<string> v = functions.getArgumentTypes($1.name);
+				errorPrototypeMismatch(yylineno, $1.name, v);
+				YYERROR;
+			}
+			$$.type = functions.getReturnType($1.name);
+			list<string> saved_regs = saveRegs();
+			pushFramePointer();
+			pushReturnAddress();
+			emit("jal " + $1.name);
+			popReturnAddress();
+			popFramePointer();
+			restoreRegs(saved_regs);
+			$$.reg = string("$v0");
+			$$.name = $1.name;
+		};
+
+ExpList:	Exp
+			{
+				//emit("# ExpList -> Exp : expType = " + $1.expType);
+				if($1.expType == "BOOLCONST"){
+					string str = getNext();
+					bpatch($1.trueList, str);
+					bpatch($1.falseList, str);
+					RegPool::freeRegister($1.reg);
+				}
+				if($1.expType == "BOOLEXP"){
+					$1.reg = RegPool::getRegister();
+					
+					string str = getNext();
+					bpatch($1.trueList, str);
+					bpatch($1.falseList, str);
+					emitBoolOp($1.reg, $1.boolRegs, $1.op);
+					RegPool::freeRegister($1.boolRegs);
+				}
+				if($1.expType == "RELOP"){
+					string reg = RegPool::getRegister();
+					string str = getNext();
+					emit("addu " + reg + ", $zero, 1");
+					bpatch($1.trueList, str);
+					$1.trueList = newList();
+					int location = emit("j ");
+					str = getNext();
+					emit("addu " + reg + ", $zero, 0");
+					bpatch($1.falseList, str);
+					$1.falseList = newList();
+					bpatch(makelist(location), getNext());
+					$1.reg = reg;
+					RegPool::freeRegister($1.regList);
+				}
+				$$.typeList.push_front($1.type);
+				$$.regList.push_front($1.reg);
+				//$$.regList = merge($$.regList, $1.regList);
+			};
+
+ExpList:	Exp
+			{
+				if($1.expType == "BOOLCONST"){
+					string str = getNext();
+					bpatch($1.trueList, str);
+					bpatch($1.falseList, str);
+					//RegPool::freeRegister($1.reg);
+				}
+				if($1.expType == "BOOLEXP"){
+					//emit("# ExpList -> Exp : at BOOLEXP");
+					$1.reg = RegPool::getRegister();
+					string str = getNext();
+					bpatch($1.trueList, str);
+					bpatch($1.falseList, str);
+					emitBoolOp($1.reg, $1.boolRegs, $1.op);
+					
+					RegPool::freeRegister($1.boolRegs);
+				}
+				if($1.expType == "RELOP"){
+					string reg = RegPool::getRegister();
+					string str = getNext();
+					emit("addu " + reg + ", $zero, 1");
+					bpatch($1.trueList, str);
+					$1.trueList = newList();
+					int location = emit("j ");
+					str = getNext();
+					emit("addu " + reg + ", $zero, 0");
+					bpatch($1.falseList, str);
+					$1.falseList = newList();
+					bpatch(makelist(location), getNext());
+					$1.reg = reg;
+					RegPool::freeRegister($1.regList);
+				}
+			}
+			COMMA ExpList
+			{
+				
+				$$.regList = merge($4.regList, $1.regList);
+				$$.typeList = $4.typeList;
+				$$.typeList.push_front($1.type);
+				$$.regList.push_front($1.reg);
+			};
+
+Type:	INT { $$.type = string("INT");}
+		| BYTE { $$.type = string("BYTE");}
+		| BOOL { $$.type = string("BOOL");};
+
+Exp:	LPAREN Exp RPAREN
+		{
+			$$ = $2;
+		};
+Exp:	Exp PLUS Exp
+		{
+			if(checkBinOpType($1.type, $3.type) == false){
+				errorMismatch(yylineno);
+				YYERROR;
+			}
+			$$.type = setType($1.type, $3.type);
+			string reg = $1.reg;	// recycle a register from one of the sons
+			$$.reg = reg;
+			emit("addu " + reg + ", " + $1.reg + ", " + $3.reg);
+			if($$.type == "BYTE"){
+				emit("and " + reg + ", " + reg + ", 255");
+			}
+			//RegPool::freeRegister($1.reg);
+			RegPool::freeRegister($3.reg);
+			RegPool::freeRegister($1.regList);
+			RegPool::freeRegister($3.regList);
+		};
+
+Exp:	Exp MINUS Exp
+		{
+			if(checkBinOpType($1.type, $3.type) == false){
+				errorMismatch(yylineno);
+				YYERROR;
+			}
+			$$.type = setType($1.type, $3.type);
+			string reg = $1.reg;
+			$$.reg = reg;
+			emit("subu " + reg + ", " + $1.reg + ", " + $3.reg);
+			if($$.type == "BYTE"){
+				emit("and " + reg + ", " + reg + ", 255");
+			}
+			//RegPool::freeRegister($1.reg);
+			RegPool::freeRegister($3.reg);
+			RegPool::freeRegister($1.regList);
+			RegPool::freeRegister($3.regList);
+		};
+		
+Exp:	Exp MULT Exp
+		{
+			if(checkBinOpType($1.type, $3.type) == false){
+				errorMismatch(yylineno);
+				YYERROR;
+			}
+			$$.type = setType($1.type, $3.type);
+			string reg = $1.reg;
+			$$.reg = reg;
+			emit("mul " + reg + ", " + $1.reg + ", " + $3.reg);
+			if($$.type == "BYTE"){
+				emit("and " + reg + ", " + reg + ", 255");
+			}
+			RegPool::freeRegister($3.reg);
+			RegPool::freeRegister($1.regList);
+			RegPool::freeRegister($3.regList);
+		};
+		
+Exp:	Exp DIV Exp
+		{
+			if(checkBinOpType($1.type, $3.type) == false){
+				errorMismatch(yylineno);
+				YYERROR;
+			}
+			$$.type = setType($1.type, $3.type);
+			addDivByZeroCheck($3.reg);
+			string reg = $1.reg;
+			$$.reg = reg;
+			emit("divu " + reg + ", " + $1.reg + ", " + $3.reg);
+			if($$.type == "BYTE"){
+				emit("and " + reg + ", " + reg + ", 255");
+			}
+			//RegPool::freeRegister($1.reg);
+			RegPool::freeRegister($3.reg);
+			RegPool::freeRegister($1.regList);
+			RegPool::freeRegister($3.regList);
+		};
+
+Exp:	ID {
+			CHECK_VAR_DECL($1.name);
+			$$.type = scopeManager.getVarType($1.name);
+			$$.reg = RegPool::getRegister();
+			int offset = scopeManager.getVarOffset($1.name);
+			loadVariableValue($1.name, $$.reg, offset);
+			$$.expType = string("ID");
+		};
+
+Exp: 	Call
+		{
+			$$ = $1;
+			$$.expType = string("CALL");
+			$$.reg = RegPool::getRegister();
+			emit("move " + $$.reg + ", $v0 # store return value of: " + $1.name);
+		};
+
+Exp:	NUM {
+			$$.type = string("INT");
+			$$.reg = RegPool::getRegister();
+			writeToReg($$.reg, $1.val);
+		};
+Exp:	NUM B
+		{ 
+			if($1.val > 255 || $1.val < 0){
+				errorByteTooLarge(yylineno, $1.lexeme);
+				YYERROR;
+			}
+			$$.type = string("BYTE");
+			$$.reg = RegPool::getRegister();
+			writeToReg($$.reg, $1.val);
+		};
+
+Exp:	STRING
+		{
+			$$.label = emitStringData($1.lexeme);
+			$$.reg = RegPool::getRegister();
+			emit("la " + $$.reg + ", " + $$.label);
+		}
+		;
+
+/*	Boolean expressions	*/
+
+Exp:	TRUE
+		{
+			$$.reg = RegPool::getRegister();
+			writeToReg($$.reg, 1);
+			$$.trueList = makelist(emit("j "));
+			$$.falseList = newList();
+			$$.type = string("BOOL");
+			$$.expType = string("BOOLCONST");
+		}
+		|
+		FALSE
+		{
+			$$.reg = RegPool::getRegister();
+			writeToReg($$.reg, 0);
+			$$.trueList = newList();
+			$$.falseList = makelist(emit("j "));
+			$$.type = string("BOOL");
+			$$.expType = string("BOOLCONST");
+		};
+
+Exp:	NOT Exp
+		{
+			emit("xor " + $2.reg + ", " + $2.reg + ", 1");
+			
+			if($2.type != "BOOL"){
+				errorMismatch(yylineno);
+				YYERROR;
+			}
+			if($2.expType == "ID" || $2.expType == "CALL"){
+				
+				int true_location = emitTrueCheck($2.reg);
+				int false_location = emit("j ");
+				$2.trueList = makelist(false_location);
+				$2.falseList = makelist(true_location);
+			}
+			
+			$$.type = string("BOOL");
+			//if($2.expType != "ID" && $2.expType != "CALL") $$.expType = $2.expType;
+			$$.expType = "BOOLEXP";
+			$$.trueList = $2.falseList;
+			$$.falseList = $2.trueList;
+			$$.reg = $2.reg;
+			$$.regList = $2.regList;
+			$$.boolRegs.push_back($2.reg);
+			$$.op = "not";
+			
+		};
+
+Exp:	Exp AND
+		{
+			if($1.expType == "ID" || $1.expType == "CALL"){
+				int true_location = emitTrueCheck($1.reg);
+				int false_location = emit("j ");
+				$1.trueList = makelist(true_location);
+				$1.falseList = makelist(false_location);
+			}
+		}
+		M Exp
+		{
+			
+			if($1.type != "BOOL" || $5.type != "BOOL"){
+				errorMismatch(yylineno);
+				YYERROR;
+			}
+			
+			if($5.expType == "ID" || $5.expType == "CALL"){
+				int true_location = emitTrueCheck($5.reg);
+				int false_location = emit("j ");
+				$5.trueList = makelist(true_location);
+				$5.falseList = makelist(false_location);
+			}
+			$$.type = string("BOOL");
+			$$.expType = "BOOLEXP";
+			if($1.expType == "RELOP" || $5.expType == "RELOP"){
+				$$.expType = "RELOP";
+			}
+			bpatch($1.trueList, $4.quad);
+			$$.trueList = $5.trueList;
+			$$.falseList = merge($1.falseList, $5.falseList);
+			$$.regList = merge($1.regList, $5.regList);
+			$$.boolRegs.push_back($1.reg);
+			$$.boolRegs.push_back($5.reg);
+			$$.op = "and";
+		};
+
+Exp:	Exp OR
+		{
+			if($1.expType == "ID" || $1.expType == "CALL"){
+				int true_location = emitTrueCheck($1.reg);
+				int false_location = emit("j ");
+				$1.trueList = makelist(true_location);
+				$1.falseList = makelist(false_location);
+			}
+		}
+		M Exp
+		{
+			if($1.type != "BOOL" || $5.type != "BOOL"){
+				errorMismatch(yylineno);
+				YYERROR;
+			}
+			
+			if($5.expType == "ID" || $5.expType == "CALL"){
+				int true_location = emitTrueCheck($5.reg);
+				int false_location = emit("j ");
+				$5.trueList = makelist(true_location);
+				$5.falseList = makelist(false_location);
+			}
+			$$.type = string("BOOL");
+			$$.expType = "BOOLEXP";
+			if($1.expType == "RELOP" || $5.expType == "RELOP"){
+				$$.expType = "RELOP";
+			}
+			bpatch($1.falseList, $4.quad);
+			$$.trueList = merge($1.trueList, $5.trueList);
+			$$.falseList = $5.falseList;
+			$$.regList = merge($1.regList, $5.regList);
+			$$.boolRegs.push_back($1.reg);
+			$$.boolRegs.push_back($5.reg);
+			$$.op = "or";
+		};
+		
+
+Exp:	Exp RELOP Exp
+		{
+			if(!isNumber($1.type) || !isNumber($3.type)){
+				errorMismatch(yylineno);
+				YYERROR;
+			}
+			$$.type = string("BOOL");
+			$$.expType = string("RELOP");
+			int true_location = emitCondBranch($1.reg, $3.reg, $2.lexeme);
+			int false_location = emit("j ");
+			$$.trueList = makelist(true_location);
+			$$.falseList = makelist(false_location);
+			$$.regList.push_back($1.reg);
+			$$.regList.push_back($3.reg);
+		};
+		
+/*	Markers used for backpatching	*/
+M:	{
+		$$.quad = getNext();
+	};
+
+N:	{
+		$$.nextList = makelist(emit("j "));
+	};
+
+NB:	{
+		emit("# break statement");
+		$$.nextList = makelist(emit("j "));
+	};
+
+%%
+
+
+bool checkAssignmentType(string lval, string rval){
+	if(lval != rval){
+		if(lval == "INT" && rval == "BYTE") return true;
+		return false;
+	}
+	return true;
+}
+
+bool checkBinOpType(string type1, string type2){
+	if(isNumber(type1) && isNumber(type2)) return true;
+	return false;
+}
+
+bool isNumber(string type){
+	return type == "INT" || type == "BYTE";
+}
+
+string setType(string t1, string t2){
+	if(t1 == "INT" || t2 == "INT") return "INT";
+	return "BYTE";
+}
+
+
+void yyerror (char const *s) {
+   errorSyn(yylineno);
+   exit(1);
+}
+
+ 
+int main(){
+	RegPool::init();
+	addDivByZeroCode();
+	addPrintCode();
+	scopeManager = ScopeManager();
+	functions = FunctionTable();
+	int retval = 0;
+	try{
+		yyparse();
+	} catch(exception& e){
+		cout << "Caught exception: " << e.what() << endl;
+		emitCode();
+	}
+	RegPool::release();
+	return retval;
+}

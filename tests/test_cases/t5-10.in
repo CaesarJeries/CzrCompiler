@@ -1,0 +1,21 @@
+// test nested loops
+
+void main(){
+    byte i = 1b;
+    while (i <= 10) {
+        byte j = 1 b;
+        while (j <= 10) {
+            if (i <= j) {
+                printi(i*j);
+                if (i*j/10 == 0) print("  "); else print(" ");
+            }
+            else
+            {
+                print("   ");
+            }
+            j = j+1b;
+        }
+        print("\n");
+        i = i+1b;
+    }
+}

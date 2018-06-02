@@ -1,0 +1,37 @@
+int f1() {
+    print("a\n");
+    return 10;
+}
+
+byte f2(){
+    print("b\n");
+    return 11b;
+}
+
+bool f3() {
+    print("c\n");
+    return false;
+}
+
+void foo(int a1, int a2, int a3) {
+    printi(a1);
+    printi(a2);
+    printi(a3);
+}
+
+void bar(bool c1, int a2, int a3) {
+    if (c1) printi(1); else printi(0);
+    printi(a2);
+    printi(a3);
+}
+
+void main(){
+    foo(f1(),0,f2());
+    print("\n");
+    foo(f2(),f1(),10);
+    print("\n");
+    foo(f1(),f2(),f2());
+    print("\n");
+    bar(f3(),f2(),f1());
+    print("\n");
+}

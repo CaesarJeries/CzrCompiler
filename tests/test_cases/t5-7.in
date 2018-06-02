@@ -1,0 +1,45 @@
+void main()
+{
+    // break test
+    while(true)
+    {
+        print("starting infinite loop\n");
+        break;
+    }
+    print("out of loop through break statement\n");
+
+    int x = 1;
+    byte y = 255b;
+    int count = 0;
+    while(y/x >=1)
+    {
+        x = x + 2;
+        count = count+1;
+        if(count>3)
+        {
+            print("break\n");
+            break;
+        }
+    }
+    printi(x);
+    print("\n");
+    int z = y/x;
+    printi(z);
+    print("\n");
+    x = 10;
+    y = 10b;
+    while(true)
+    {
+        print("before inner loop\n");
+        while(x==y)
+        {
+            print("break inner loop\n");
+            break;
+        }
+
+        print ("break outer loop\n");
+        break;
+    }
+    print("finished");
+
+}

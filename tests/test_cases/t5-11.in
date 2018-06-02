@@ -1,0 +1,17 @@
+int zero() { return 0; }
+byte zeroB() { return 0b; }
+int printAndRet() {
+    print("\ncalled printAndRet\n");
+    return 1;
+}
+
+void main() {
+    printi(zero());
+    print("\n");
+    printi(zeroB());
+    print("\n");
+    printi(zero() + 1 + 2 + 3 + 4 + 5 + 6 + 7 + 8 + 9 + 10 + 11 + 12 + 13 + zeroB());
+    printAndRet();
+    printi(zero() + zero() + zeroB());
+    printi(printAndRet());
+}

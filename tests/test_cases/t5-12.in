@@ -1,0 +1,45 @@
+void switchMe(int x)
+{
+    switch(x)
+    {
+        case 0: {
+            print("zero");
+            return;
+        } break;
+        case 1: {
+            print("one");
+            return;
+        } break;
+        case 2: {
+            print("two");
+            return;
+        } break;
+    };
+    print("practically infinity");
+}
+
+void do(bool c) {
+    if (c)  print("c");
+    int i = 10;
+    while (c and i > 5) {
+        printi(i);
+        i = i - 2;
+    }
+    if (not c) print("not c");
+    print("\n");
+}
+
+void main()
+{
+    byte i = 0b;
+    while (i < 4) {
+       switchMe(i);
+       print("\n");
+       i = i + 1b;
+    }
+    do(true);
+    do(false);
+    do(i < 4);
+    do(i > 4);
+    do(i > 4 or i == 4);
+}
