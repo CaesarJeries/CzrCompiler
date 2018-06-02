@@ -56,6 +56,7 @@ comment				\/\/[^\r\n]*[ \r|\n|\r\n]?
 "/*"				{ BEGIN(bk_comment); }
 <bk_comment>"*/"	{ BEGIN(0); }
 <bk_comment>"/*"	{ showError(); }
+<bk_comment>.|\n		;
 
 "=="|"!="|"<"|">"|"<="|">="	{yylval.lexeme = string(yytext); return RELOP;}
 
