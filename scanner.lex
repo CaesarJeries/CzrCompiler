@@ -22,6 +22,8 @@ STRING				\"([^\n\r\"\\]|\\[rnt"\\])+\"
 whitespace			[\n\r\t ]
 comment				\/\/[^\r\n]*[ \r|\n|\r\n]?
 
+%x bk_comment
+
 %%
 
 "void"				{yylval.type = string("VOID"); return VOID;}
@@ -50,6 +52,10 @@ comment				\/\/[^\r\n]*[ \r|\n|\r\n]?
 "{"					{return LBRACE;}
 "}"					{return RBRACE;}
 "="					{return ASSIGN;}
+
+"/*"				{ BEGIN(bk_comment); }
+<bk_comment>"*/"	{ BEGIN(0); }
+<bk_comment>"/*"	{ showError(); }
 
 "=="|"!="|"<"|">"|"<="|">="	{yylval.lexeme = string(yytext); return RELOP;}
 
